@@ -190,6 +190,7 @@ object TickScheduler extends WorldExtensionInstantiator {
         if (part.tile != null && !e.random) {
           val tag = new NBTTagCompound
           tag.setShort("pos", indexInChunk(new BlockCoord(part.tile)).toShort)
+          tag.setInteger("y", part.tile.yCoord)
           tag.setByte("i", part.tile.partList.indexOf(part).toByte)
           tag.setLong("time", e.time)
           tagList.appendTag(tag)
@@ -209,6 +210,7 @@ object TickScheduler extends WorldExtensionInstantiator {
       for (i <- 0 until tagList.tagCount) {
         val tag = tagList.getCompoundTagAt(i)
         val pos = indexInChunk(cc, tag.getShort("pos"))
+        if (tag.hasKey("y", 3)) pos.y = tag.getInteger("y")
         val tile =
           chunk.chunkTileEntityMap.get(new ChunkPosition(pos.x, pos.y, pos.z))
         if (tile.isInstanceOf[TileMultipart])
