@@ -31,6 +31,7 @@ import net.minecraft.network.play.{INetHandlerPlayServer, INetHandlerPlayClient}
 import net.minecraft.network.play.server.S40PacketDisconnect
 import net.minecraft.util.{ChatComponentText, ChatComponentTranslation}
 import net.minecraft.network.NetHandlerPlayServer
+import cpw.mods.fml.common.Loader
 
 class MultipartPH {
   val channel = MultipartMod
@@ -140,8 +141,11 @@ object MultipartSPH
   }
 
   def onWorldUnload(world: World) {
-    if (!world.isRemote)
+    if (!world.isRemote) {
       updateMap.remove(world)
+      if (Loader.isModLoaded("cubicchunks"))
+        CubicChunksCompat.onWorldUnload(world)
+    }
   }
 
   def getTileStream(world: World, pos: BlockCoord) =
@@ -165,16 +169,21 @@ object MultipartSPH
 
   def onTickEnd(players: Seq[EntityPlayerMP]) {
     PacketScheduler.sendScheduled()
+    val cubic = Loader.isModLoaded("cubicchunks")
+    if (cubic) CubicChunksCompat.pruneWatchers(players)
 
-    for (p <- players if chunkWatchers.containsKey(p.getEntityId)) {
+    for (p <- players if cubic || chunkWatchers.containsKey(p.getEntityId)) {
       updateMap.get(p.worldObj) match {
         case Some(m) if !m.isEmpty =>
-          val chunks = chunkWatchers(p.getEntityId)
           val packet = new PacketCustom(channel, 3).compress()
           var send = false
           for (
             (pos, stream) <- m
-            if chunks(new ChunkCoordIntPair(pos.x >> 4, pos.z >> 4))
+            if (if (cubic) CubicChunksCompat.isWatching(p, pos)
+                else
+                  chunkWatchers(p.getEntityId)(
+                    new ChunkCoordIntPair(pos.x >> 4, pos.z >> 4)
+                  ))
           ) {
             send = true
             packet.writeByteArray(stream.getBytes)
@@ -188,6 +197,8 @@ object MultipartSPH
       }
     }
     updateMap.foreach(_._2.clear())
+    // A snapshot includes this tick's changes; new watchers must not replay those deltas.
+    if (cubic) CubicChunksCompat.sendPendingDescriptions()
     for (p <- players if newWatchers.containsKey(p.getEntityId)) {
       for (c <- newWatchers(p.getEntityId)) {
         val chunk = p.worldObj.getChunkFromChunkCoords(c.chunkXPos, c.chunkZPos)
@@ -206,10 +217,13 @@ object MultipartSPH
   }
 
   def onChunkWatch(p: EntityPlayer, c: ChunkCoordIntPair) {
-    newWatchers.getOrElseUpdate(p.getEntityId, new LinkedList).add(c)
+    if (!Loader.isModLoaded("cubicchunks"))
+      newWatchers.getOrElseUpdate(p.getEntityId, new LinkedList).add(c)
   }
 
   def onChunkUnWatch(p: EntityPlayer, c: ChunkCoordIntPair) {
+    if (Loader.isModLoaded("cubicchunks"))
+      CubicChunksCompat.onColumnUnWatch(p, c)
     newWatchers.get(p.getEntityId) match {
       case Some(chunks) => chunks.remove(c)
       case _            =>

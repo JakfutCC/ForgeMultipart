@@ -1,1 +1,5 @@
 apply plugin: 'scala'
+
+tasks.named('test') {
+    useJUnit()
+}
